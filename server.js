@@ -9,7 +9,18 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ---------- CORS & request logging ----------
-app.use(cors({ origin: 'http://localhost:5173' }));
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',                         // local dev
+  process.env.FRONTEND_URL,                        // set this on Render to your Vercel URL
+].filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow requests with no origin (curl, Postman) or matching origins
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error('CORS: origin not allowed'));
+  },
+}));
 app.use((req, res, next) => {
   console.log(`[AI Proxy] ${req.method} ${req.path}`);
   next();
