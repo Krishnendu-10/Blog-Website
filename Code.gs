@@ -5,8 +5,6 @@
 
 // Name of the database file in Google Drive
 var DATABASE_FILENAME = "database.json";
-// Name of the folder where uploaded blog thumbnails are stored
-var IMAGES_FOLDER_NAME = "Blog Images";
 var PARENT_FOLDER_NAME = "Blog Platform";
 
 function getOrCreateParentFolder() {
@@ -97,15 +95,16 @@ function doPost(e) {
 
 /**
  * Handles creation of a new blog post.
+ * Images are now stored on Cloudinary CDN — the frontend sends a secure URL.
  */
 function handleCreate(payload, dbFile, dbData) {
   var title = payload.title;
   var category = payload.category;
   var content = payload.content;
-  var imageBase64 = payload.imageBase64;
+  var imageUrl = payload.imageUrl;   // Cloudinary CDN URL from frontend
   var slug = payload.slug;
   
-  if (!title || !category || !content || !imageBase64 || !slug) {
+  if (!title || !category || !content || !imageUrl || !slug) {
     return makeJsonResponse({ success: false, error: "Missing required fields for create" });
   }
   
@@ -119,34 +118,21 @@ function handleCreate(payload, dbFile, dbData) {
   doc.saveAndClose();
   
   var docFile = DriveApp.getFileById(doc.getId());
-  // Move the document into the parent folder
   var parentFolder = getOrCreateParentFolder();
   parentFolder.addFile(docFile);
-  // Remove from root folder to avoid duplication
   DriveApp.getRootFolder().removeFile(docFile);
   docFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   var docUrl = doc.getUrl();
   var docId = doc.getId();
   
-  // 2. Decode the base64 image and save it to Google Drive
-  var imageFolder = getOrCreateFolder(IMAGES_FOLDER_NAME);
-  var base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-  var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), "image/jpeg", slug + "_" + new Date().getTime() + ".jpg");
-  var imgFile = imageFolder.createFile(blob);
-  imgFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  
-  var imageUrl = "https://drive.google.com/uc?export=view&id=" + imgFile.getId();
-  var imageId = imgFile.getId();
-  
-  // 3. Append to database.json
+  // 2. Store the Cloudinary image URL directly in the database
   var newPost = {
     id: Utilities.getUuid(),
     title: title,
     slug: slug,
     docUrl: docUrl,
     docId: docId,
-    imageUrl: imageUrl,
-    imageId: imageId,
+    imageUrl: imageUrl,   // Cloudinary CDN URL — fast and reliable
     category: category,
     date: new Date().toISOString(),
     excerpt: content.length > 150 ? content.substring(0, 150) + "..." : content
@@ -160,6 +146,7 @@ function handleCreate(payload, dbFile, dbData) {
 
 /**
  * Handles updating an existing blog post.
+ * Images are stored on Cloudinary — frontend sends a URL if the image changed.
  */
 function handleUpdate(payload, dbFile, dbData) {
   var id = payload.id;
@@ -167,7 +154,7 @@ function handleUpdate(payload, dbFile, dbData) {
   var category = payload.category;
   var content = payload.content;
   var slug = payload.slug;
-  var imageBase64 = payload.imageBase64; // Optional (only if updated)
+  var imageUrl = payload.imageUrl;  // Optional: new Cloudinary URL if image was changed
   
   if (!id || !title || !category || !content || !slug) {
     return makeJsonResponse({ success: false, error: "Missing required fields for update" });
@@ -187,7 +174,7 @@ function handleUpdate(payload, dbFile, dbData) {
   
   var post = dbData[index];
   
-  // 1. Update the existing Google Doc
+  // 1. Update the existing Google Doc content
   try {
     var doc = DocumentApp.openById(post.docId);
     var body = doc.getBody();
@@ -197,11 +184,9 @@ function handleUpdate(payload, dbFile, dbData) {
       body.appendParagraph(paragraphs[j]);
     }
     doc.saveAndClose();
-    
-    // Update the filename in Drive to match the new title
     DriveApp.getFileById(post.docId).setName(title);
   } catch (docErr) {
-    // If the doc was deleted from Drive but exists in the DB, recreate it
+    // Doc was deleted — recreate it
     var newDoc = DocumentApp.create(title);
     var newBody = newDoc.getBody();
     var newParagraphs = content.split("\n");
@@ -215,27 +200,12 @@ function handleUpdate(payload, dbFile, dbData) {
     post.docUrl = newDoc.getUrl();
   }
   
-  // 2. If a new image is provided, delete the old one and save the new one
-  if (imageBase64 && imageBase64.startsWith("data:image")) {
-    try {
-      if (post.imageId) {
-        DriveApp.getFileById(post.imageId).setTrashed(true);
-      }
-    } catch (imgErr) {
-      // Ignore if image was already deleted or doesn't exist
-    }
-    
-    var imageFolder = getOrCreateFolder(IMAGES_FOLDER_NAME);
-    var base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
-    var blob = Utilities.newBlob(Utilities.base64Decode(base64Data), "image/jpeg", slug + "_" + new Date().getTime() + ".jpg");
-    var imgFile = imageFolder.createFile(blob);
-    imgFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    
-    post.imageUrl = "https://drive.google.com/uc?export=view&id=" + imgFile.getId();
-    post.imageId = imgFile.getId();
+  // 2. If a new Cloudinary image URL is provided, update it
+  if (imageUrl && imageUrl.indexOf("http") === 0) {
+    post.imageUrl = imageUrl;
   }
   
-  // 3. Update entry in database.json
+  // 3. Update metadata in database.json
   post.title = title;
   post.slug = slug;
   post.category = category;
@@ -250,6 +220,7 @@ function handleUpdate(payload, dbFile, dbData) {
 
 /**
  * Handles deletion of a blog post.
+ * Images are on Cloudinary and do not need to be deleted here.
  */
 function handleDelete(payload, dbFile, dbData) {
   var id = payload.id;
@@ -271,25 +242,17 @@ function handleDelete(payload, dbFile, dbData) {
   
   var post = dbData[index];
   
-  // 1. Trash the Google Doc
+  // 1. Trash the associated Google Doc
   try {
     if (post.docId) {
       DriveApp.getFileById(post.docId).setTrashed(true);
     }
   } catch (e) {
-    // Ignore error if file doesn't exist
+    // Ignore if already deleted
   }
   
-  // 2. Trash the Google Drive image file
-  try {
-    if (post.imageId) {
-      DriveApp.getFileById(post.imageId).setTrashed(true);
-    }
-  } catch (e) {
-    // Ignore error if file doesn't exist
-  }
-  
-  // 3. Remove entry from database
+  // 2. Remove entry from database.json
+  // (Image is on Cloudinary — no Drive file to clean up)
   dbData.splice(index, 1);
   dbFile.setContent(JSON.stringify(dbData, null, 2));
   
@@ -353,22 +316,6 @@ function getOrCreateDatabaseFile() {
   return newFile;
 }
 
-/**
- * Gets or creates a Google Drive folder by name.
- */
-function getOrCreateFolder(folderName) {
-  var parentFolder = getOrCreateParentFolder();
-  var folders = parentFolder.getFoldersByName(folderName);
-  if (folders.hasNext()) {
-    var folder = folders.next();
-    folder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    return folder;
-  } else {
-    var newFolder = parentFolder.createFolder(folderName);
-    newFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    return newFolder;
-  }
-}
 
 /**
  * Utility function to build JSON responses with CORS headers.

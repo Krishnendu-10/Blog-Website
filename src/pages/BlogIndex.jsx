@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useBlogs } from "../context/BlogContext";
 import { BlogFormModal } from "../components/BlogFormModal";
 import { getFromGas } from "../utils/api";
+import { getDriveImageUrl } from "../utils/driveImage";
 import { Plus, Search, Edit2, Trash2, Calendar, BookOpen, AlertTriangle } from "lucide-react";
 
 export const BlogIndex = () => {
@@ -235,10 +236,14 @@ export const BlogIndex = () => {
                 {/* Image Section */}
                 <Link to={`/${blog.slug}`} className="block overflow-hidden aspect-video h-48 relative">
                   <img
-                    src={blog.imageUrl}
+                    src={getDriveImageUrl(blog.imageUrl)}
                     alt={blog.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                      e.currentTarget.parentElement.style.background = "linear-gradient(135deg, #1e1b4b, #2e1065)";
+                    }}
                   />
                   <span className="absolute top-3 left-3 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-slate-950/80 backdrop-blur border border-white/10 text-violet-300">
                     {blog.category}

@@ -1,97 +1,219 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&display=swap');
 @import "tailwindcss";
 
-/* Inter and Playfair Display Fonts Theme Config */
-
+/* ─── Design Tokens ───────────────────────────────────────────────── */
 @theme {
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-serif: 'Playfair Display', Georgia, serif;
 }
 
+/* ─── Base ─────────────────────────────────────────────────────────── */
 body {
   font-family: var(--font-sans);
-  background-color: #0b0f19; /* Custom rich dark navy/slate */
-  color: #f3f4f6; /* Gray 100 */
+  background-color: #0b0f19;
+  color: #f3f4f6;
   overflow-x: hidden;
 }
 
-/* Custom scrollbar to match deep dark aesthetics */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-track {
-  background: #0b0f19;
-}
-::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #334155;
-}
+/* ─── Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0b0f19; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #334155; }
 
-/* Google Docs content container defaults */
-.google-doc-content {
-  font-family: var(--font-sans);
-  color: #d1d5db; /* Gray 300 */
-  font-size: 1.125rem;
-  line-height: 1.8;
-}
-
-.google-doc-content p {
-  margin-top: 0.5rem;
-  margin-bottom: 1.25rem;
-}
-
-.google-doc-content h1, 
-.google-doc-content h2, 
-.google-doc-content h3,
-.google-doc-content h4 {
-  font-family: var(--font-serif);
-  color: #ffffff;
-  font-weight: 700;
-  margin-top: 2rem;
-  margin-bottom: 1rem;
-  line-height: 1.3;
-}
-
-.google-doc-content h1 { font-size: 2.25rem; }
-.google-doc-content h2 { font-size: 1.75rem; }
-.google-doc-content h3 { font-size: 1.5rem; }
-
-.google-doc-content ul, 
-.google-doc-content ol {
-  margin-left: 2rem;
-  margin-bottom: 1.25rem;
-}
-
-.google-doc-content ul {
-  list-style-type: disc;
-}
-
-.google-doc-content ol {
-  list-style-type: decimal;
-}
-
-.google-doc-content li {
-  margin-bottom: 0.5rem;
-  padding-left: 0.25rem;
-}
-
-.google-doc-content a {
-  color: #8b5cf6; /* Violet 500 */
-  text-decoration: underline;
-}
-
-.google-doc-content a:hover {
-  color: #a78bfa; /* Violet 400 */
-}
-
-/* Glassmorphism utility */
+/* ─── Glassmorphism utility ─────────────────────────────────────────── */
 .glass-panel {
-  background: rgba(17, 24, 39, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 24, 39, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   GOOGLE DOC CONTENT — Dark-mode override
+   Google Docs exports embed their own <style> block with explicit
+   light backgrounds and dark text. We use !important to override
+   EVERY colour/background Google Docs might inject so the content
+   is always readable on our dark canvas.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Reset anything Google Docs sets on arbitrary elements inside the container */
+.google-doc-content *,
+.google-doc-content *::before,
+.google-doc-content *::after {
+  background-color: transparent !important;
+  background: transparent !important;
+  color: inherit !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Base container */
+.google-doc-content {
+  font-family: var(--font-sans) !important;
+  font-size: 1.0625rem !important;       /* 17px – comfortable reading size */
+  line-height: 1.85 !important;
+  color: #d1d5db !important;             /* Gray-300 – soft, easy on eyes */
+  letter-spacing: 0.01em !important;
+}
+
+/* ── Paragraphs ── */
+.google-doc-content p {
+  margin-top: 0 !important;
+  margin-bottom: 1.5rem !important;
+  color: #cbd5e1 !important;             /* Slate-300 */
+}
+
+/* Empty paragraphs used as spacers in Google Docs */
+.google-doc-content p:empty {
+  margin-bottom: 0.5rem !important;
+}
+
+/* ── Headings ── */
+.google-doc-content h1,
+.google-doc-content h2,
+.google-doc-content h3,
+.google-doc-content h4,
+.google-doc-content h5,
+.google-doc-content h6 {
+  font-family: var(--font-serif) !important;
+  color: #f8fafc !important;             /* Near-white */
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  margin-top: 2.5rem !important;
+  margin-bottom: 1rem !important;
+  letter-spacing: -0.01em !important;
+}
+
+.google-doc-content h1 { font-size: 2rem !important; }
+.google-doc-content h2 {
+  font-size: 1.6rem !important;
+  padding-bottom: 0.4rem !important;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.25) !important;
+}
+.google-doc-content h3 { font-size: 1.3rem !important; }
+.google-doc-content h4 { font-size: 1.1rem !important; }
+
+/* ── Links ── */
+.google-doc-content a {
+  color: #a78bfa !important;             /* Violet-400 */
+  text-decoration: underline !important;
+  text-decoration-color: rgba(167, 139, 250, 0.4) !important;
+  text-underline-offset: 3px !important;
+  transition: color 0.15s !important;
+}
+.google-doc-content a:hover {
+  color: #c4b5fd !important;
+}
+
+/* ── Lists ── */
+.google-doc-content ul,
+.google-doc-content ol {
+  margin-left: 1.75rem !important;
+  margin-bottom: 1.5rem !important;
+  color: #cbd5e1 !important;
+}
+.google-doc-content ul { list-style-type: disc !important; }
+.google-doc-content ol { list-style-type: decimal !important; }
+.google-doc-content li {
+  margin-bottom: 0.5rem !important;
+  padding-left: 0.25rem !important;
+  color: #cbd5e1 !important;
+}
+
+/* ── Blockquotes ── */
+.google-doc-content blockquote {
+  border-left: 3px solid #7c3aed !important;
+  padding: 0.5rem 0 0.5rem 1.5rem !important;
+  margin: 2rem 0 !important;
+  font-style: italic !important;
+  color: #a1a1aa !important;
+}
+
+/* ── Code / Pre ── */
+.google-doc-content code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+  font-size: 0.875em !important;
+  background: rgba(139, 92, 246, 0.1) !important;
+  color: #c4b5fd !important;
+  padding: 0.15em 0.45em !important;
+  border-radius: 4px !important;
+}
+.google-doc-content pre {
+  background: #0f172a !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 10px !important;
+  padding: 1.25rem 1.5rem !important;
+  overflow-x: auto !important;
+  margin: 1.75rem 0 !important;
+  font-size: 0.875rem !important;
+  line-height: 1.7 !important;
+}
+.google-doc-content pre code {
+  background: transparent !important;
+  color: #e2e8f0 !important;
+  padding: 0 !important;
+}
+
+/* ── Tables ── */
+.google-doc-content table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+  margin: 2rem 0 !important;
+  font-size: 0.9375rem !important;
+}
+.google-doc-content th {
+  background: rgba(139, 92, 246, 0.15) !important;
+  color: #e2e8f0 !important;
+  font-weight: 600 !important;
+  text-align: left !important;
+  padding: 0.75rem 1rem !important;
+  border-bottom: 1px solid rgba(139, 92, 246, 0.3) !important;
+}
+.google-doc-content td {
+  color: #cbd5e1 !important;
+  padding: 0.6875rem 1rem !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+.google-doc-content tr:last-child td {
+  border-bottom: none !important;
+}
+
+/* ── Images inside doc ── */
+.google-doc-content img {
+  border-radius: 10px !important;
+  max-width: 100% !important;
+  height: auto !important;
+  margin: 1.5rem auto !important;
+  display: block !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── Horizontal rule ── */
+.google-doc-content hr {
+  border: none !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
+  margin: 2.5rem 0 !important;
+}
+
+/* ── Google Docs sometimes wraps content in a div with explicit style ── */
+.google-doc-content div[style] {
+  color: inherit !important;
+  background: transparent !important;
+}
+
+/* ── Spans with forced colors from Google Docs ── */
+.google-doc-content span {
+  color: inherit !important;
+  background: transparent !important;
+}
+
+/* ── Strong / Em ── */
+.google-doc-content strong,
+.google-doc-content b {
+  color: #f1f5f9 !important;
+  font-weight: 600 !important;
+}
+.google-doc-content em,
+.google-doc-content i {
+  color: #cbd5e1 !important;
 }
