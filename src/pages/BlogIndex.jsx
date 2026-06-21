@@ -100,16 +100,12 @@ export const BlogIndex = () => {
   };
 
   const handleFormSubmit = async (formData) => {
-    try {
-      if (editingBlog) {
-        await updateBlog(formData);
-      } else {
-        await createBlog(formData);
-      }
-      setIsModalOpen(false);
-    } catch (err) {
-      // Errors are handled inside the modal or context
+    if (editingBlog) {
+      await updateBlog(formData); // throws on failure — modal catches it
+    } else {
+      await createBlog(formData); // throws on failure — modal catches it
     }
+    setIsModalOpen(false);
   };
 
   return (

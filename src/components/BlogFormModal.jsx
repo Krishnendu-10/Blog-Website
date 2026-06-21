@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Sparkles, Image as ImageIcon, Loader2, Upload, CheckCircle2, UploadCloud } from "lucide-react";
+import { X, Sparkles, Image as ImageIcon, Loader2, Upload, CheckCircle2, UploadCloud, Save } from "lucide-react";
 import { generateImage } from "../utils/imageGen";
 import { uploadToImgBB } from "../utils/imgbb";
+import { getDriveImageUrl } from "../utils/driveImage";
 
 const CATEGORIES = [
   "Technology",
@@ -12,12 +13,14 @@ const CATEGORIES = [
   "Creative",
 ];
 
-/* ─── Upload progress states ─────────────────────────────────────── */
-// null        → idle (no image yet)
-// "generating"→ Pollinations AI is generating
-// "uploading" → uploading to Cloudinary
-// "done"      → Cloudinary URL is ready
-// "error"     → something failed
+/*
+ * uploadState values:
+ *   null         → idle, no image yet
+ *   "generating" → Pollinations AI is generating the image
+ *   "uploading"  → uploading base64 to ImgBB
+ *   "done"       → a valid image URL is ready
+ *   "error"      → something failed
+ */
 
 export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
   const [title, setTitle] = useState("");
@@ -27,15 +30,18 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
   const [customPrompt, setCustomPrompt] = useState("");
 
   // Image state
-  const [imageUrl, setImageUrl] = useState("");        // Final Cloudinary URL stored here
-  const [previewSrc, setPreviewSrc] = useState("");    // data URL shown in preview (before upload finishes)
+  const [imageUrl, setImageUrl] = useState("");     // Final URL sent to GAS
+  const [previewSrc, setPreviewSrc] = useState(""); // URL shown in the preview box
   const [uploadState, setUploadState] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [imageError, setImageError] = useState("");
+
+  // Save state
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const fileInputRef = useRef(null);
 
-  /* ── Populate when editing ── */
+  /* ── Populate form when editing ── */
   useEffect(() => {
     if (blogToEdit) {
       setTitle(blogToEdit.title || "");
@@ -43,10 +49,13 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
       setContent(blogToEdit.content || "");
       setSlug(blogToEdit.slug || "");
       setCustomPrompt("");
-      // Show existing image
-      setImageUrl(blogToEdit.imageUrl || "");
-      setPreviewSrc(blogToEdit.imageUrl || "");
-      setUploadState(blogToEdit.imageUrl ? "done" : null);
+
+      // Normalise the existing image URL so the preview always loads
+      const existing = blogToEdit.imageUrl || "";
+      setImageUrl(existing);
+      // getDriveImageUrl is a no-op for non-Drive URLs (ImgBB, http, etc.)
+      setPreviewSrc(existing ? getDriveImageUrl(existing) : "");
+      setUploadState(existing ? "done" : null);
     } else {
       setTitle("");
       setCategory(CATEGORIES[0]);
@@ -58,7 +67,8 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
       setUploadState(null);
     }
     setImageError("");
-    setUploadProgress(0);
+    setIsSaving(false);
+    setSaveError("");
   }, [blogToEdit, isOpen]);
 
   /* ── Auto-generate slug from title ── */
@@ -75,13 +85,16 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
 
   if (!isOpen) return null;
 
-  /* ── Upload a base64 data URL to ImgBB ── */
+  const isImageBusy = uploadState === "generating" || uploadState === "uploading";
+
+  /* ── Upload base64 to ImgBB ── */
   const handleImgBBUpload = async (base64DataUrl) => {
     setUploadState("uploading");
     setImageError("");
     try {
       const url = await uploadToImgBB(base64DataUrl);
       setImageUrl(url);
+      setPreviewSrc(url); // Switch preview from base64 to the CDN URL
       setUploadState("done");
     } catch (err) {
       setImageError(err.message || "Failed to upload image to ImgBB.");
@@ -90,7 +103,7 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
     }
   };
 
-  /* ── AI Thumbnail generation ── */
+  /* ── AI thumbnail generation ── */
   const handleGenerateThumbnail = async () => {
     const promptText =
       customPrompt.trim() ||
@@ -100,12 +113,11 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
     setImageError("");
     setPreviewSrc("");
     setImageUrl("");
-    setUploadProgress(0);
 
     try {
       const base64Url = await generateImage(promptText);
-      setPreviewSrc(base64Url);          // Show preview immediately
-      await handleImgBBUpload(base64Url);
+      setPreviewSrc(base64Url); // Show local preview immediately
+      await handleImgBBUpload(base64Url); // Then upload to CDN
     } catch (err) {
       setImageError(err.message || "Failed to generate thumbnail.");
       setUploadState("error");
@@ -117,8 +129,7 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    if (!allowedTypes.includes(file.type)) {
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
       setImageError("Please select a JPEG, PNG, WebP, or GIF image.");
       return;
     }
@@ -134,10 +145,12 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
       await handleImgBBUpload(base64);
     };
     reader.readAsDataURL(file);
+    // reset so the same file can be re-selected
+    e.target.value = "";
   };
 
-  /* ── Form submission ── */
-  const handleSubmit = (e) => {
+  /* ── Form submission with save loader ── */
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!title.trim() || !category || !content.trim() || !slug.trim()) return;
 
@@ -150,51 +163,47 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
       title,
       category,
       content,
-      imageUrl,   // Cloudinary URL — GAS no longer receives base64
+      imageUrl,
       slug,
+      ...(blogToEdit ? { id: blogToEdit.id } : {}),
     };
 
-    if (blogToEdit) {
-      payload.id = blogToEdit.id;
+    setIsSaving(true);
+    setSaveError("");
+    try {
+      await onSubmit(payload);
+      // onSubmit closes the modal on success — no need to reset here
+    } catch (err) {
+      setSaveError(err?.message || "Failed to save. Please try again.");
+      setIsSaving(false);
     }
-
-    onSubmit(payload);
-  };
-
-  const isBusy = uploadState === "generating" || uploadState === "uploading";
-
-  /* ── Status label in preview box ── */
-  const statusLabel = () => {
-    if (uploadState === "generating") return "AI is generating image…";
-    if (uploadState === "uploading") return "Uploading to ImgBB…";
-    if (uploadState === "done") return "Image ready ✓";
-    if (uploadState === "error") return "Upload failed — try again";
-    return null;
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto bg-black/70 backdrop-blur-sm">
       <div className="relative w-full max-w-4xl rounded-2xl glass-panel text-white shadow-2xl overflow-hidden my-8">
 
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="flex items-center justify-between p-6 border-b border-white/10 bg-slate-900/60">
           <h2 className="text-2xl font-serif font-bold text-white flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-violet-400 fill-violet-400/20" />
             {blogToEdit ? "Edit Blog Post" : "Create New Blog Post"}
           </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-colors cursor-pointer"
+            disabled={isSaving}
+            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-40 text-gray-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form */}
+        {/* ── Form ── */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto max-h-[75vh] space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-            {/* ── Left: Text fields ── */}
+            {/* Left: text fields */}
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
@@ -260,10 +269,9 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
               </div>
             </div>
 
-            {/* ── Right: Image panel ── */}
+            {/* Right: image panel */}
             <div className="flex flex-col bg-slate-950/30 rounded-2xl border border-white/5 p-5 gap-4">
 
-              {/* Section title */}
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-wider text-gray-300 mb-1 flex items-center gap-1.5">
                   <ImageIcon className="w-4 h-4 text-violet-400" />
@@ -274,7 +282,7 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
                 </p>
               </div>
 
-              {/* AI prompt textarea */}
+              {/* AI prompt */}
               <textarea
                 value={customPrompt}
                 onChange={(e) => setCustomPrompt(e.target.value)}
@@ -283,11 +291,11 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
                 className="w-full px-3 py-2 text-xs rounded-xl bg-slate-950/60 border border-white/10 focus:border-violet-500 focus:outline-none transition-all placeholder:text-gray-600 resize-none"
               />
 
-              {/* Buttons row */}
+              {/* Action buttons */}
               <div className="flex gap-2">
                 <button
                   type="button"
-                  disabled={isBusy || (!title.trim() && !customPrompt.trim())}
+                  disabled={isImageBusy || (!title.trim() && !customPrompt.trim())}
                   onClick={handleGenerateThumbnail}
                   className="flex-1 py-2.5 px-3 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:from-gray-800 disabled:to-gray-800 disabled:text-gray-500 text-white rounded-xl font-medium text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-violet-950/20 active:scale-95"
                 >
@@ -300,7 +308,7 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
 
                 <button
                   type="button"
-                  disabled={isBusy}
+                  disabled={isImageBusy}
                   onClick={() => fileInputRef.current?.click()}
                   className="flex-1 py-2.5 px-3 bg-slate-800 hover:bg-slate-700 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded-xl font-medium text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-white/10 active:scale-95"
                 >
@@ -320,41 +328,57 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
                 />
               </div>
 
-              {/* Preview box */}
-              <div className="flex-1 flex flex-col justify-center items-center rounded-xl border border-dashed border-white/10 bg-slate-950/50 overflow-hidden relative min-h-[180px]">
+              {/* ── Image preview ─────────────────────────────────────────
+                  Fixed height so `object-cover` has a clear bounding box.
+                  Previously used h-full on a flex-1 parent which collapsed
+                  to zero when the image hadn't loaded yet.
+              ────────────────────────────────────────────────────────── */}
+              <div className="relative rounded-xl border border-dashed border-white/10 bg-slate-950/50 overflow-hidden h-44">
 
-                {isBusy && !previewSrc ? (
-                  <div className="flex flex-col items-center gap-3 p-4 text-center">
+                {isImageBusy && !previewSrc ? (
+                  /* Spinner while generating / uploading (no preview yet) */
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
                     <Loader2 className="w-8 h-8 animate-spin text-violet-400" />
                     <span className="text-xs text-gray-400 font-serif italic">
-                      {statusLabel()}
+                      {uploadState === "generating" ? "AI is generating image…" : "Uploading to ImgBB…"}
                     </span>
                   </div>
                 ) : previewSrc ? (
-                  <div className="group w-full h-full relative">
+                  /* Image preview with status badge */
+                  <>
                     <img
                       src={previewSrc}
                       alt="Thumbnail preview"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        // Graceful fallback if URL fails to load
+                        e.currentTarget.style.display = "none";
+                        e.currentTarget.parentElement.style.background =
+                          "linear-gradient(135deg, #1e1b4b, #2e1065)";
+                      }}
                     />
-                    {/* Status overlay */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-end p-3 pointer-events-none">
-                      {uploadState === "uploading" && (
-                        <span className="text-[11px] text-white bg-black/70 px-2.5 py-1 rounded-lg border border-white/10 flex items-center gap-1">
-                          <UploadCloud className="w-3 h-3 animate-pulse" />
-                          Uploading to ImgBB…
-                        </span>
-                      )}
-                      {uploadState === "done" && (
-                        <span className="text-[11px] text-emerald-300 bg-emerald-950/70 px-2.5 py-1 rounded-lg border border-emerald-800/50 flex items-center gap-1">
+
+                    {/* Uploading spinner overlay (preview already visible) */}
+                    {uploadState === "uploading" && (
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center gap-2">
+                        <UploadCloud className="w-5 h-5 text-violet-300 animate-pulse" />
+                        <span className="text-xs text-white font-medium">Uploading to ImgBB…</span>
+                      </div>
+                    )}
+
+                    {/* Success badge */}
+                    {uploadState === "done" && (
+                      <div className="absolute bottom-2 left-0 right-0 flex justify-center pointer-events-none">
+                        <span className="text-[11px] text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded-lg border border-emerald-800/50 flex items-center gap-1 backdrop-blur-sm">
                           <CheckCircle2 className="w-3 h-3" />
-                          Saved to ImgBB CDN
+                          {imageUrl.includes("imgbb") ? "Saved to ImgBB CDN" : "Image ready"}
                         </span>
-                      )}
-                    </div>
-                  </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
-                  <div className="flex flex-col items-center gap-2 text-gray-600 p-6 text-center">
+                  /* Empty state */
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-gray-600">
                     <ImageIcon className="w-10 h-10 stroke-1" />
                     <span className="text-xs">Generate with AI or upload an image</span>
                   </div>
@@ -369,21 +393,40 @@ export const BlogFormModal = ({ isOpen, onClose, onSubmit, blogToEdit }) => {
             </div>
           </div>
 
-          {/* Footer */}
+          {/* Save error */}
+          {saveError && (
+            <p className="text-xs text-rose-400 bg-rose-950/30 border border-rose-900/50 px-4 py-2.5 rounded-xl">
+              {saveError}
+            </p>
+          )}
+
+          {/* ── Footer ── */}
           <div className="flex justify-end gap-3 pt-6 border-t border-white/10">
             <button
               type="button"
               onClick={onClose}
-              className="px-5 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 font-medium text-sm text-gray-300 transition-all active:scale-95 cursor-pointer"
+              disabled={isSaving}
+              className="px-5 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 disabled:opacity-40 font-medium text-sm text-gray-300 transition-all active:scale-95 cursor-pointer"
             >
               Cancel
             </button>
+
             <button
               type="submit"
-              disabled={isBusy || !title.trim() || !content.trim() || !imageUrl}
-              className="px-6 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-semibold text-sm transition-all shadow-lg shadow-violet-950/20 active:scale-95 cursor-pointer"
+              disabled={isImageBusy || isSaving || !title.trim() || !content.trim() || !imageUrl}
+              className="min-w-[140px] px-6 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:bg-gray-800 disabled:text-gray-500 text-white font-semibold text-sm transition-all shadow-lg shadow-violet-950/20 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
             >
-              {blogToEdit ? "Save Changes" : "Publish Post"}
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {blogToEdit ? "Saving…" : "Publishing…"}
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  {blogToEdit ? "Save Changes" : "Publish Post"}
+                </>
+              )}
             </button>
           </div>
         </form>
